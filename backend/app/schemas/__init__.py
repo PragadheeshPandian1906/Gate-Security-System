@@ -1,0 +1,1 @@
+"""SmartGuard AI — Schemas package."""

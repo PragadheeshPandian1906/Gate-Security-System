@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartGuard AI — IoT Gate Hardware Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(17, 24, 39, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-glow: rgba(56, 189, 248, 0.2);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #38bdf8;
+      --accent-emerald: #10b981;
+      --accent-rose: #f43f5e;
+      --accent-amber: #f59e0b;
+      --accent-indigo: #6366f1;
+      --lcd-bg: #1c2a1a;
+      --lcd-text: #6ee7b7;
+      --lcd-glow: rgba(110, 231, 183, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(56, 189, 248, 0.05) 0px, transparent 50%);
+      background-attachment: fixed;
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      background: rgba(9, 13, 22, 0.85);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-icon {
+      width: 2.5rem;
+      height: 2.5rem;
+      background: linear-gradient(135deg, var(--accent-indigo), var(--accent-cyan));
+      border-radius: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+    }
+
+    .status-badge.online {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: var(--accent-emerald);
+    }
+
+    .status-badge.offline {
+      background: rgba(244, 63, 94, 0.15);
+      border-color: rgba(244, 63, 94, 0.3);
+      color: var(--accent-rose);
+    }
+
+    .status-badge.connecting {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: var(--accent-amber);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 10px currentColor;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    main {
+      flex: 1;
+      padding: 2rem;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 1024px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+      }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 1rem;
+      backdrop-filter: blur(16px);
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--card-border-glow), transparent);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Telemetry grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+    }
+
+    @media (max-width: 640px) {
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .metric-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .metric-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .metric-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* Gate visualizer */
+    .visualizer-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 1.5rem 1rem;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 0.75rem;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .barrier-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .gate-arm-stage {
+      width: 140px;
+      height: 140px;
+      position: relative;
+      border-radius: 50%;
+      border: 2px dashed rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .gate-pivot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #475569;
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      z-index: 10;
+    }
+
+    .gate-arm {
+      position: absolute;
+      bottom: 33px;
+      left: 33px;
+      width: 90px;
+      height: 6px;
+      background: repeating-linear-gradient(90deg, #f43f5e, #f43f5e 12px, #ffffff 12px, #ffffff 24px);
+      border-radius: 3px;
+      transform-origin: 0% 50%;
+      transform: rotate(0deg);
+      transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .gate-arm.open {
+      transform: rotate(-90deg);
+    }
+
+    .gate-status-text {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    /* LCD 1602 Display Mirror */
+    .lcd-frame {
+      background: #0f1610;
+      border: 4px solid #27372b;
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 0 15px rgba(16, 185, 129, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .lcd-header {
+      font-size: 0.65rem;
+      color: #52795d;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.2rem;
+    }
+
+    .lcd-screen {
+      background: var(--lcd-bg);
+      border-radius: 0.35rem;
+      padding: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--lcd-text);
+      text-shadow: 0 0 8px var(--lcd-glow);
+      box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      letter-spacing: 0.15em;
+      font-size: 1.15rem;
+      min-height: 4.5rem;
+      justify-content: center;
+    }
+
+    .lcd-line {
+      white-space: pre;
+      overflow: hidden;
+      line-height: 1.4;
+    }
+
+    /* Action Controls */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.25rem;
+      border-radius: 0.65rem;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-emerald {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.3));
+      border-color: rgba(16, 185, 129, 0.4);
+      color: var(--accent-emerald);
+    }
+
+    .btn-emerald:hover {
+      background: rgba(16, 185, 129, 0.3);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-rose {
+      background: linear-gradient(135deg, rgba(244, 63, 94, 0.2), rgba(244, 63, 94, 0.3));
+      border-color: rgba(244, 63, 94, 0.4);
+      color: var(--accent-rose);
+    }
+
+    .btn-rose:hover {
+      background: rgba(244, 63, 94, 0.3);
+      box-shadow: 0 0 15px rgba(244, 63, 94, 0.3);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Logs & Events */
+    .events-panel {
+      grid-column: 1 / -1;
+    }
+
+    .events-container {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 0.75rem;
+      height: 240px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .event-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.25rem;
+      line-height: 1.4;
+    }
+
+    .event-row:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .event-time {
+      color: #64748b;
+      flex-shrink: 0;
+    }
+
+    .event-badge {
+      font-size: 0.65rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.25rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .event-badge.INFO { background: rgba(56, 189, 248, 0.2); color: var(--accent-cyan); }
+    .event-badge.WARN { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+    .event-badge.ERROR { background: rgba(244, 63, 94, 0.2); color: var(--accent-rose); }
+
+    .event-source {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .event-msg {
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .input-field {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: var(--accent-cyan);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="8" rx="2"/>
+          <rect x="2" y="14" width="20" height="8" rx="2"/>
+          <line x1="6" y1="6" x2="6.01" y2="6"/>
+          <line x1="6" y1="18" x2="6.01" y2="18"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">SmartGuard IoT Controller</div>
+        <div class="brand-subtitle">Physical Barrier & ESP32 Telemetry Monitor</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div id="esp32StatusBadge" class="status-badge connecting">
+        <div class="pulse-dot"></div>
+        <span id="esp32StatusText">CONNECTING...</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Gate Visualizer Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>Controller-Reported Gate State</span>
+        <span id="gateStateTag" style="font-size: 0.8rem; color: var(--text-muted);">STATE: UNKNOWN</span>
+      </div>
+
+      <div class="visualizer-container">
+        <div class="barrier-box">
+          <div class="gate-arm-stage">
+            <div class="gate-pivot"></div>
+            <div id="gateArm" class="gate-arm"></div>
+          </div>
+          <div id="gateText" class="gate-status-text" style="color: var(--accent-rose);">CLOSED</div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div class="metric-box">
+            <span class="metric-label">Commanded Servo Angle (unverified)</span>
+            <span id="servoAngle" class="metric-val">0°</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Auto-Close Timer</span>
+            <span id="autoCloseDuration" class="metric-val">15000ms</span>
+          </div>
+          <div class="metric-box">
+            <span class="metric-label">Hardware Profile</span>
+            <span id="hwProfile" class="metric-val" style="font-size: 0.85rem; color: var(--accent-cyan);">SERVO 18 • LCD 21,22</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="metric-label">Use the authenticated security dashboard for manual gate controls.</p>
+    </div>
+
+    <!-- Hardware Mirror & Telemetry Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>ESP32 Physical Mirror</span>
+        <span id="deviceIdTag" style="font-size: 0.8rem; font-family: 'JetBrains Mono'; color: var(--accent-cyan);">DEVICE: esp32-01</span>
+      </div>
+
+      <!-- 1602 LCD Mirror -->
+      <div class="lcd-frame">
+        <div class="lcd-header">I2C LCD 1602 Display Mirror (0x27)</div>
+        <div class="lcd-screen">
+          <div id="lcdLine1" class="lcd-line">SYSTEM READY    </div>
+          <div id="lcdLine2" class="lcd-line">TAP / PRESENT ID</div>
+        </div>
+      </div>
+
+      <!-- Hardware Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <span class="metric-label">IP Address</span>
+          <span id="espIp" class="metric-val">--</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">WiFi RSSI</span>
+          <span id="espRssi" class="metric-val">-- dBm</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Free Heap</span>
+          <span id="espHeap" class="metric-val">-- KB</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Uptime</span>
+          <span id="espUptime" class="metric-val">--</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- System Event Log -->
+    <div class="card events-panel">
+      <div class="card-title">
+        <span>Hardware Event Telemetry Stream</span>
+        <button class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" onclick="clearEventsList()">Clear View</button>
+      </div>
+
+      <div id="eventsContainer" class="events-container">
+        <!-- Event rows injected by JS -->
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const CONFIG = {
+      wsUrl: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws/monitor`,
+    };
+
+    let ws = null;
+    let reconnectInterval = 3000;
+
+    function initWebSocket() {
+      const badge = document.getElementById('esp32StatusBadge');
+      const badgeText = document.getElementById('esp32StatusText');
+
+      badge.className = 'status-badge connecting';
+      badgeText.innerText = 'CONNECTING TO MICROSERVICE...';
+
+      ws = new WebSocket(CONFIG.wsUrl);
+
+      ws.onopen = () => {
+        console.log('Connected to IoT Microservice Monitor WebSocket');
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handleWsMessage(data);
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        badge.className = 'status-badge offline';
+        badgeText.innerText = 'SERVICE OFFLINE';
+        setTimeout(initWebSocket, reconnectInterval);
+      };
+
+      ws.onerror = (err) => {
+        console.warn('WebSocket encountered error:', err);
+      };
+    }
+
+    function handleWsMessage(data) {
+      if (data.type === 'INIT') {
+        if (data.status) updateStatusView(data.status);
+        if (data.events && Array.isArray(data.events)) {
+          data.events.forEach(addEventRow);
+        }
+      } else if (data.type === 'STATUS_UPDATE') {
+        if (data.status) updateStatusView(data.status);
+      } else if (data.type === 'EVENT') {
+        if (data.event) addEventRow(data.event);
+      }
+    }
+
+    function updateStatusView(status) {
+      const badge = document.getElementById('esp32StatusBadge');
+      const badgeText = document.getElementById('esp32StatusText');
+      const arm = document.getElementById('gateArm');
+      const gateText = document.getElementById('gateText');
+      const stateTag = document.getElementById('gateStateTag');
+      const servoAngle = document.getElementById('servoAngle');
+      const autoClose = document.getElementById('autoCloseDuration');
+
+      // Connection state
+      if (status.is_connected) {
+        badge.className = 'status-badge online';
+        badgeText.innerText = `ESP32 ONLINE (${status.device_id || 'esp32'})`;
+      } else {
+        badge.className = 'status-badge offline';
+        badgeText.innerText = 'ESP32 OFFLINE';
+      }
+
+      // Gate state
+      const gateState = status.gate_state || 'CLOSED';
+      stateTag.innerText = `STATE: ${gateState}`;
+
+      if (gateState === 'OPEN') {
+        arm.classList.add('open');
+        gateText.innerText = 'OPEN';
+        gateText.style.color = 'var(--accent-emerald)';
+        servoAngle.innerText = '90°';
+      } else if (gateState === 'MOVING') {
+        arm.classList.remove('open');
+        gateText.innerText = 'MOVING...';
+        gateText.style.color = 'var(--accent-amber)';
+        servoAngle.innerText = 'TRANSIT';
+      } else {
+        arm.classList.remove('open');
+        gateText.innerText = 'CLOSED';
+        gateText.style.color = 'var(--accent-rose)';
+        servoAngle.innerText = '0°';
+      }
+
+      if (status.auto_close_duration_ms) {
+        autoClose.innerText = `${status.auto_close_duration_ms}ms`;
+      }
+
+      // Mirror LCD
+      if (status.lcd_line1 !== undefined) {
+        document.getElementById('lcdLine1').innerText = (status.lcd_line1 || '').padEnd(16, ' ');
+      }
+      if (status.lcd_line2 !== undefined) {
+        document.getElementById('lcdLine2').innerText = (status.lcd_line2 || '').padEnd(16, ' ');
+      }
+
+      // Device metrics
+      if (status.ip_address) document.getElementById('espIp').innerText = status.ip_address;
+      if (status.wifi_rssi) document.getElementById('espRssi').innerText = `${status.wifi_rssi} dBm`;
+      if (status.free_heap) document.getElementById('espHeap').innerText = `${Math.round(status.free_heap / 1024)} KB`;
+      if (status.uptime_seconds) {
+        const h = Math.floor(status.uptime_seconds / 3600);
+        const m = Math.floor((status.uptime_seconds % 3600) / 60);
+        const s = status.uptime_seconds % 60;
+        document.getElementById('espUptime').innerText = `${h}h ${m}m ${s}s`;
+      }
+      if (status.device_id) {
+        document.getElementById('deviceIdTag').innerText = `DEVICE: ${status.device_id}`;
+      }
+    }
+
+    function addEventRow(ev) {
+      const container = document.getElementById('eventsContainer');
+      const row = document.createElement('div');
+      row.className = 'event-row';
+
+      const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      const level = ev.level || 'INFO';
+
+      row.innerHTML = `
+        <span class="event-time">${timeStr}</span>
+        <span class="event-badge ${level}">${level}</span>
+        <span class="event-source">[${ev.source || 'SYSTEM'}]</span>
+        <span class="event-msg">${escapeHtml(ev.message || '')}</span>
+      `;
+
+      container.insertBefore(row, container.firstChild);
+
+      // Cap at 100 entries
+      while (container.children.length > 100) {
+        container.removeChild(container.lastChild);
+      }
+    }
+
+    function clearEventsList() {
+      document.getElementById('eventsContainer').innerHTML = '';
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    window.addEventListener('DOMContentLoaded', initWebSocket);
+  </script>
+</body>
+</html>
