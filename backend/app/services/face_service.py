@@ -28,6 +28,9 @@ LOW_CONFIDENCE_THRESHOLD = 0.30
 _app = None          # InsightFace FaceAnalysis instance
 _app_init_tried = False
 
+def initialize_face_model() -> bool:
+    """Initialize InsightFace during application startup."""
+    return _get_face_app() is not None
 
 def _get_face_app():
     """Lazy-load InsightFace FaceAnalysis. Returns None if unavailable."""

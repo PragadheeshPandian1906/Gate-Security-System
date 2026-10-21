@@ -21,7 +21,10 @@ logger = logging.getLogger("smartguard.alpr")
 _alpr = None
 _alpr_init_tried = False
 
-
+def initialize_alpr_model() -> bool:
+    """Initialize FastALPR during application startup."""
+    return _get_alpr() is not None
+    
 def normalize_plate(plate: str) -> str:
     """
     Normalise a license plate string for database matching:

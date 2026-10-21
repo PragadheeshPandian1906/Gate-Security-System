@@ -26,23 +26,47 @@ settings = get_settings()
 # ---------------------------------------------------------------------------
 # Lifespan context manager (replaces deprecated on_event)
 # ---------------------------------------------------------------------------
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info(
-        "smartguard.app Application startup — %s [%s]", settings.app_name, settings.app_env
+        "smartguard.app Application startup — %s [%s]",
+        settings.app_name,
+        settings.app_env,
     )
+
     try:
         settings.validate_critical()
         logger.info("smartguard.app Configuration validated successfully")
     except ValueError as exc:
         logger.error("smartguard.app Configuration error: %s", exc)
-        # Keep running so /health/live can report state
 
     # Capture main event loop for IoT singleton
     import asyncio
     from app.services.iot_service import iot_manager
+
     iot_manager.set_loop(asyncio.get_running_loop())
+
+    # Initialize AI models before the app starts accepting requests
+    from app.services import face_service, alpr_service
+
+    logger.info("smartguard.app Initializing AI models at startup")
+
+    face_ready = face_service.initialize_face_model()
+    alpr_ready = alpr_service.initialize_alpr_model()
+
+    logger.info(
+        "smartguard.app AI startup status | face_ready=%s | alpr_ready=%s",
+        face_ready,
+        alpr_ready,
+    )
+
+    if not face_ready:
+        logger.error("smartguard.app Face recognition is unavailable")
+
+    if not alpr_ready:
+        logger.error("smartguard.app Number-plate recognition is unavailable")
 
     yield
 
