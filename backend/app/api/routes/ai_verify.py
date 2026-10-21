@@ -18,6 +18,7 @@ import time
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import get_active_account, require_security
 from app.db.session import get_db
@@ -87,7 +88,11 @@ async def process_live_frame(
     # Face pipeline execution (independent)
     t_face_start = time.perf_counter()
     try:
-        faces, face_err = face_service.process_live_frame_faces(data, db)
+        faces, face_err = await run_in_threadpool(
+    face_service.process_live_frame_faces,
+    data,
+    db,
+    )
     except Exception as exc:
         logger.error("Live frame face pipeline failed: %s", exc, exc_info=True)
         faces, face_err = [], str(exc)
@@ -96,13 +101,25 @@ async def process_live_frame(
     # Plate pipeline execution (independent)
     t_plate_start = time.perf_counter()
     try:
-        plates, plate_err = process_live_frame_plates(data, db)
+        plates, plate_err = await run_in_threadpool(
+    process_live_frame_plates,
+    data,
+    db,
+    )
     except Exception as exc:
         logger.error("Live frame ALPR pipeline failed: %s", exc, exc_info=True)
         plates, plate_err = [], str(exc)
     plate_latency_ms = (time.perf_counter() - t_plate_start) * 1000.0
 
     total_latency_ms = (time.perf_counter() - t_total_start) * 1000.0
+    logger.info(
+    "LIVE_FRAME_PIPELINE frame_id=%s face_ms=%.2f "
+    "plate_ms=%.2f pipeline_ms=%.2f",
+    frame_id,
+    face_latency_ms,
+    plate_latency_ms,
+    total_latency_ms,
+    )
 
     # ── Live-frame audit logging (no image persistence) ─────────────────────
     # Live frames are processed in memory. We do not save them locally or upload

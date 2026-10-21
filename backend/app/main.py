@@ -3,6 +3,7 @@ SmartGuard AI — FastAPI Application Entry Point
 """
 import logging
 from contextlib import asynccontextmanager
+import time
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,41 @@ logger = logging.getLogger("smartguard.app")
 
 settings = get_settings()
 
+class RequestTimingMiddleware:
+    """Log total backend processing time for every HTTP request."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        # Do not treat WebSocket connections as HTTP requests.
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        start_time = time.perf_counter()
+        status_code = 500
+
+        async def send_with_status(message):
+            nonlocal status_code
+
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_status)
+        finally:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+
+            logger.info(
+                "HTTP_REQUEST method=%s path=%s status=%s duration_ms=%.2f",
+                scope.get("method", "UNKNOWN"),
+                scope.get("path", "/"),
+                status_code,
+                duration_ms,
+            )
 
 # ---------------------------------------------------------------------------
 # Lifespan context manager (replaces deprecated on_event)
@@ -98,6 +134,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
+app.add_middleware(RequestTimingMiddleware)
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------

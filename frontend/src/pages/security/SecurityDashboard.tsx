@@ -133,7 +133,7 @@ export function SecurityDashboard() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
-  const [captureIntervalMs, setCaptureIntervalMs] = useState<number>(750);
+  const [captureIntervalMs, setCaptureIntervalMs] = useState<number>(2000);
 
   // ── Workflow Direction & Confirmation ───────────────────────────────────────
   const [direction, setDirection] = useState<Direction>('ENTRY');
