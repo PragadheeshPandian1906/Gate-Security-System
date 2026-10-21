@@ -9,6 +9,7 @@ Endpoints:
   GET  /api/ai/alpr-history      - recent ALPR verification log
   GET  /api/ai/storage-stats     - dual storage statistics
 """
+import json
 import logging
 import uuid
 from typing import Annotated
@@ -40,7 +41,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
-# Server-side cooldown cache for auto-saving live detection frames to storage
+# Server-side cooldown cache for live-frame audit logging (no image storage)
 _live_event_cooldown: dict[str, float] = {}
 _LIVE_COOLDOWN_SECONDS = 8.0
 
@@ -103,149 +104,144 @@ async def process_live_frame(
 
     total_latency_ms = (time.perf_counter() - t_total_start) * 1000.0
 
-    # ── Evidence Persistence for Detected Entities ─────────────────────────
-    # If any faces or plates are detected, save evidence to dual storage (local + Supabase)
-    # with rate-limiting cooldown per unique detection key to avoid storage spam.
+    # ── Live-frame audit logging (no image persistence) ─────────────────────
+    # Live frames are processed in memory. We do not save them locally or upload
+    # them to Supabase. Keep a cooldown so the live camera does not create a
+    # database audit row for every incoming frame.
     storage_dict = None
+    last_face_ver_id = None
+    last_alpr_ver_id = None
+
     if faces or plates:
         now_ts = time.time()
-        should_save = False
         event_keys: list[str] = []
 
         for f in faces:
             person = f.get("person") if isinstance(f, dict) else getattr(f, "person", None)
-            person_id = (person.get("id") if isinstance(person, dict) else getattr(person, "id", None)) if person else None
+            person_id = (
+                person.get("id") if isinstance(person, dict)
+                else getattr(person, "id", None)
+            ) if person else None
             f_status = f.get("status") if isinstance(f, dict) else getattr(f, "status", "unknown")
-            k = f"face_{person_id}" if person_id else f"face_{f_status}"
-            if now_ts - _live_event_cooldown.get(k, 0.0) > _LIVE_COOLDOWN_SECONDS:
-                should_save = True
-                event_keys.append(k)
+            key = f"face_{person_id}" if person_id else f"face_{f_status}"
+            if now_ts - _live_event_cooldown.get(key, 0.0) > _LIVE_COOLDOWN_SECONDS:
+                event_keys.append(key)
 
         for p in plates:
             norm = p.get("normalized_plate") if isinstance(p, dict) else getattr(p, "normalized_plate", None)
             p_status = p.get("status") if isinstance(p, dict) else getattr(p, "status", "unknown")
-            k = f"plate_{norm}" if norm else f"plate_{p_status}"
-            if now_ts - _live_event_cooldown.get(k, 0.0) > _LIVE_COOLDOWN_SECONDS:
-                should_save = True
-                event_keys.append(k)
+            key = f"plate_{norm}" if norm else f"plate_{p_status}"
+            if now_ts - _live_event_cooldown.get(key, 0.0) > _LIVE_COOLDOWN_SECONDS:
+                event_keys.append(key)
 
-        if should_save:
-            for k in event_keys:
-                _live_event_cooldown[k] = now_ts
+        if event_keys:
+            for key in event_keys:
+                _live_event_cooldown[key] = now_ts
 
-            evt_filename = f"live_{uuid.uuid4().hex[:12]}.jpg"
-            try:
-                storage_res = storage_service.save_file(
-                    data=data,
-                    bucket="access-evidence",
-                    subfolder="live_events",
-                    filename=evt_filename,
-                    content_type="image/jpeg",
+            # Log face verification metadata without image paths. These rows
+            # remain available for access history/analytics even though the
+            # live frame itself is not retained.
+            for f in faces:
+                _f = f if isinstance(f, dict) else vars(f)
+                _person = _f.get("person") or {}
+                _person_id = (
+                    _person.get("id") if isinstance(_person, dict)
+                    else getattr(_person, "id", None)
                 )
-                storage_dict = storage_res.to_dict()
-                logger.info(
-                    "Live frame evidence stored: %s (remote_ok=%s)",
-                    storage_res.storage_path or storage_res.local_path,
-                    storage_res.remote_ok,
+                if not _person_id:
+                    continue
+
+                try:
+                    _label = _f.get("label", "")
+                    _res = _f.get("status", "no_match")
+                    if _res not in ("matched", "no_match", "low_confidence", "error", "no_face"):
+                        _res = "matched" if _f.get("matched") else "no_match"
+
+                    ver_id = str(uuid.uuid4())
+                    db.execute(
+                        text(
+                            """
+                            INSERT INTO face_verifications
+                              (id, result, confidence, distance, matched_person_id,
+                               query_image_path, query_image_storage_path,
+                               faces_detected, meta, verified_by, timestamp)
+                            VALUES
+                              (:id, :result, :confidence, :distance, :person_id,
+                               NULL, NULL,
+                               :faces, CAST(:meta AS json), :verified_by, now())
+                            """
+                        ),
+                        {
+                            "id": ver_id,
+                            "result": _res,
+                            "confidence": _f.get("score"),
+                            "distance": _f.get("distance"),
+                            "person_id": _person_id,
+                            "faces": len(faces),
+                            "meta": json.dumps({"label": _label}),
+                            "verified_by": str(account.id),
+                        },
+                    )
+                    db.commit()
+                    last_face_ver_id = ver_id
+                except Exception as exc:
+                    logger.debug("Live face audit log skipped: %s", exc)
+                    db.rollback()
+
+            # Log ALPR metadata without retaining the live image.
+            for p in plates:
+                _p = p if isinstance(p, dict) else vars(p)
+                _norm = _p.get("normalized_plate")
+                if not _norm:
+                    continue
+
+                _vehicle = _p.get("vehicle") or {}
+                _vehicle_id = (
+                    _vehicle.get("id") if isinstance(_vehicle, dict)
+                    else getattr(_vehicle, "id", None)
                 )
+                try:
+                    _p_status = _p.get("status", "no_match")
+                    _res = (
+                        "matched"
+                        if _p.get("registered") or _p_status in ("registered", "flagged")
+                        else "no_match"
+                    )
+                    ver_id = str(uuid.uuid4())
+                    db.execute(
+                        text(
+                            """
+                            INSERT INTO alpr_verifications
+                              (id, result, detected_plate, detected_plate_normalized,
+                               ocr_confidence, detection_confidence, matched_vehicle_id,
+                               query_image_path, query_image_storage_path,
+                               verified_by, timestamp)
+                            VALUES
+                              (:id, :result, :plate, :plate_norm,
+                               :ocr_conf, :det_conf, :vehicle_id,
+                               NULL, NULL,
+                               :verified_by, now())
+                            """
+                        ),
+                        {
+                            "id": ver_id,
+                            "result": _res,
+                            "plate": _p.get("plate_text"),
+                            "plate_norm": _norm,
+                            "ocr_conf": _p.get("ocr_confidence"),
+                            "det_conf": _p.get("detection_confidence"),
+                            "vehicle_id": _vehicle_id,
+                            "verified_by": str(account.id),
+                        },
+                    )
+                    db.commit()
+                    last_alpr_ver_id = ver_id
+                except Exception as exc:
+                    logger.debug("Live plate audit log skipped: %s", exc)
+                    db.rollback()
 
-                # Track logged verification IDs for access decisions
-                last_face_ver_id = None
-                last_alpr_ver_id = None
 
-                # Log matched faces to face_verifications
-                for f in faces:
-                    _f = f if isinstance(f, dict) else vars(f)
-                    _person = _f.get("person") or {}
-                    _person_id = (_person.get("id") if isinstance(_person, dict) else getattr(_person, "id", None))
-                    if not _person_id:
-                        continue
-                    try:
-                        _label = _f.get("label", "")
-                        _res = _f.get("status", "no_match")
-                        if _res not in ('matched', 'no_match', 'low_confidence', 'error', 'no_face'):
-                            _res = 'matched' if _f.get('matched') else 'no_match'
-                        ver_id = str(uuid.uuid4())
-                        db.execute(
-                            text(
-                                """
-                                INSERT INTO face_verifications
-                                  (id, result, confidence, distance, matched_person_id,
-                                   query_image_path, query_image_storage_path,
-                                   faces_detected, meta, verified_by, timestamp)
-                                VALUES
-                                  (:id, :result, :confidence, :distance, :person_id,
-                                   :img_path, :img_storage,
-                                   :faces, CAST(:meta AS json), :verified_by, now())
-                                """
-                            ),
-                            {
-                                "id": ver_id,
-                                "result": _res,
-                                "confidence": _f.get("score"),
-                                "distance": _f.get("distance"),
-                                "person_id": _person_id,
-                                "img_path": storage_res.local_path,
-                                "img_storage": storage_res.storage_path,
-                                "faces": len(faces),
-                                "meta": f'{{"label": "{_label}"}}',
-                                "verified_by": str(account.id),
-                            },
-                        )
-                        db.commit()
-                        last_face_ver_id = ver_id
-                    except Exception as exc:
-                        logger.debug("Live face audit log skipped: %s", exc)
-                        db.rollback()
-
-                # Log detected plates to alpr_verifications
-                for p in plates:
-                    _p = p if isinstance(p, dict) else vars(p)
-                    _norm = _p.get("normalized_plate")
-                    if not _norm:
-                        continue
-                    _vehicle = _p.get("vehicle") or {}
-                    _vehicle_id = (_vehicle.get("id") if isinstance(_vehicle, dict) else getattr(_vehicle, "id", None))
-                    try:
-                        _p_status = _p.get("status", "no_match")
-                        _res = "matched" if _p.get("registered") or _p_status in ("registered", "flagged") else "no_match"
-                        ver_id = str(uuid.uuid4())
-                        db.execute(
-                            text(
-                                """
-                                INSERT INTO alpr_verifications
-                                  (id, result, detected_plate, detected_plate_normalized,
-                                   ocr_confidence, detection_confidence, matched_vehicle_id,
-                                   query_image_path, query_image_storage_path,
-                                   verified_by, timestamp)
-                                VALUES
-                                  (:id, :result, :plate, :plate_norm,
-                                   :ocr_conf, :det_conf, :vehicle_id,
-                                   :img_path, :img_storage,
-                                   :verified_by, now())
-                                """
-                            ),
-                            {
-                                "id": ver_id,
-                                "result": _res,
-                                "plate": _p.get("plate_text"),
-                                "plate_norm": _norm,
-                                "ocr_conf": _p.get("ocr_confidence"),
-                                "det_conf": _p.get("detection_confidence"),
-                                "vehicle_id": _vehicle_id,
-                                "img_path": storage_res.local_path,
-                                "img_storage": storage_res.storage_path,
-                                "verified_by": str(account.id),
-                            },
-                        )
-                        db.commit()
-                        last_alpr_ver_id = ver_id
-                    except Exception as exc:
-                        logger.debug("Live plate audit log skipped: %s", exc)
-                        db.rollback()
-            except Exception as store_err:
-                logger.warning("Failed saving live frame evidence: %s", store_err)
-
+    # Always return the live-frame response, even when no detections were found.
     return LiveFrameResponse(
         frame_id=frame_id or str(uuid.uuid4()),
         timestamp=timestamp or time.time(),
@@ -263,8 +259,8 @@ async def process_live_frame(
             plate_error=plate_err,
         ),
         storage=storage_dict,
-        face_verification_id=last_face_ver_id if 'last_face_ver_id' in locals() else None,
-        alpr_verification_id=last_alpr_ver_id if 'last_alpr_ver_id' in locals() else None,
+        face_verification_id=last_face_ver_id,
+        alpr_verification_id=last_alpr_ver_id,
     )
 
 
