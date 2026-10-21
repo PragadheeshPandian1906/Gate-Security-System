@@ -101,6 +101,36 @@ class AccessAttemptSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CampusHourlyAuthorization(BaseModel):
+    hour: int
+    entry_authorizations: int
+    exit_authorizations: int
+
+
+class CampusAccessActivity(BaseModel):
+    id: str
+    timestamp: datetime
+    person_name: Optional[str] = None
+    person_category: Optional[str] = None
+    direction: str
+    decision: str
+    movement_status: str = "NOT_VERIFIED"
+
+
+class CampusAnalyticsResponse(BaseModel):
+    campus_timezone: str
+    movement_tracking_available: bool = False
+    movement_limitation: str
+    total_entries_today: Optional[int] = None
+    currently_inside: Optional[int] = None
+    total_exits_today: Optional[int] = None
+    denied_access_today: int
+    occupancy_by_category: Optional[dict[str, int]] = None
+    supported_person_categories: list[str]
+    hourly_activity: list[CampusHourlyAuthorization]
+    recent_activity: list[CampusAccessActivity]
+
+
 class ManualReviewResolve(BaseModel):
     """Request body to resolve a pending manual review."""
     resolution: str = Field(..., pattern="^(approved|denied)$")

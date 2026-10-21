@@ -60,6 +60,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { StatusBadge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
+import { CampusEntryOverview } from '../../components/security/CampusEntryOverview';
 
 // ── State Types ───────────────────────────────────────────────────────────────
 
@@ -1491,6 +1492,8 @@ export function SecurityDashboard() {
           </div>
         }
       />
+
+      <CampusEntryOverview />
 
       {/* ─────────────────────────────────────────────────────────────────── */}
       {/* CAMERA HARDWARE & TELEMETRY CONTROL BAR                            */}

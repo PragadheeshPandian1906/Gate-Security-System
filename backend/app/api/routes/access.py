@@ -23,9 +23,14 @@ from app.schemas.access import (
     AccessAttemptCreate,
     AccessAttemptResponse,
     AccessAttemptSummary,
+    CampusAnalyticsResponse,
     ManualReviewResolve,
 )
 from app.services.access_decision_service import evaluate_access_attempt, resolve_manual_review
+from app.services.campus_analytics_service import (
+    CampusTimezoneConfigurationError,
+    get_campus_analytics,
+)
 
 logger = logging.getLogger("smartguard.access")
 router = APIRouter(prefix="/access", tags=["access"])
@@ -76,6 +81,22 @@ def list_access_attempts(
         stmt = stmt.where(AccessAttempt.decision == decision.upper())
     rows = db.execute(stmt).scalars().all()
     return [_to_summary(r) for r in rows]
+
+
+@router.get("/analytics/campus", response_model=CampusAnalyticsResponse)
+def get_campus_access_analytics(
+    db: Annotated[Session, Depends(get_db)],
+    _account: Annotated[SecurityAccount, Depends(require_security)],
+):
+    """Return campus-local access decision analytics and movement-data limitations."""
+    try:
+        return get_campus_analytics(db)
+    except CampusTimezoneConfigurationError as exc:
+        logger.error("access Campus analytics unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Campus timezone configuration is invalid.",
+        ) from exc
 
 
 @router.get("/attempts/{attempt_id}", response_model=AccessAttemptSummary)

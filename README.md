@@ -274,6 +274,20 @@ manual-open state is not persistent across power loss. No gate-position sensor
 is configured, so controller acknowledgements and reported state are not
 independent confirmation of physical movement.
 
+### Campus entry overview and movement-data limits
+
+The Security Dashboard refreshes the campus overview from
+`GET /api/access/analytics/campus` every 15 seconds. The endpoint reports
+denied access attempts and hourly allowed access authorizations in the campus
+timezone. The authorization chart and recent activity feed describe access
+decisions only; they do not confirm that a person crossed the gate.
+
+Entry totals, exit totals, current occupancy, and occupancy by category are
+shown as unavailable until the system records sensor-confirmed person
+movements. Visitor pass approval/check-in is not used as proof of entry.
+The current person model distinguishes staff, students, visitors, and
+contractors; faculty is not a separate category.
+
 ## 8. Tests and build checks
 
 Run backend tests:

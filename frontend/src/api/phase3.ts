@@ -90,6 +90,36 @@ export interface AccessAttemptSummary {
   processing_ms: number | null;
 }
 
+export interface CampusHourlyAuthorization {
+  hour: number;
+  entry_authorizations: number;
+  exit_authorizations: number;
+}
+
+export interface CampusAccessActivity {
+  id: string;
+  timestamp: string;
+  person_name: string | null;
+  person_category: string | null;
+  direction: string;
+  decision: Decision;
+  movement_status: 'NOT_VERIFIED';
+}
+
+export interface CampusAnalytics {
+  campus_timezone: string;
+  movement_tracking_available: false;
+  movement_limitation: string;
+  total_entries_today: number | null;
+  currently_inside: number | null;
+  total_exits_today: number | null;
+  denied_access_today: number;
+  occupancy_by_category: Record<string, number> | null;
+  supported_person_categories: string[];
+  hourly_activity: CampusHourlyAuthorization[];
+  recent_activity: CampusAccessActivity[];
+}
+
 export interface GateStatus {
   state: GateState;
   last_decision: string | null;
@@ -138,6 +168,9 @@ export interface WatchlistEntry {
 // ── Access Attempts API ────────────────────────────────────────────────────
 
 export const accessApi = {
+  getCampusAnalytics: (signal?: AbortSignal) =>
+    apiClient.get<CampusAnalytics>('/access/analytics/campus', { signal }),
+
   createAttempt: (data: {
     direction: Direction;
     face_verification_id?: string | null;
